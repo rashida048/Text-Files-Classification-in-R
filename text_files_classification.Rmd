@@ -1,0 +1,330 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+Hello Teresa This is my problem
+
+```{r}
+library(tm) # Framework for text mining.
+library(SnowballC) # Provides wordStem() for stemming.
+library(dplyr) # Data preparation and pipes %>%.
+library(ggplot2) # Plot word frequencies.
+library(scales) # Common data analysis activities.
+library(pdftools)
+```
+
+```{r}
+system.file("texts", package = "tm")
+```
+
+```{r}
+s = system.file("texts", "20Newsgroups", "20news-bydate-train", package = "tm")
+files1 = DirSource(s)
+files1
+```
+
+
+```{r}
+mac.path.loc = system.file("texts", "20Newsgroups", "20news-bydate-train", "alt.atheism", package = "tm")
+mac.files = DirSource(mac.path.loc)
+```
+
+
+```{r}
+mac.path.loc
+```
+
+```{r}
+mac.path.loc = system.file("texts", "20Newsgroups", "20news-bydate-train", "rec.autos", package = "tm")
+mac.path.loc
+```
+
+```{r}
+mac.files = DirSource(mac.path.loc)
+mac.files
+```
+
+
+```{r}
+mac.corpus = VCorpus(URISource(mac.files$filelist[1:150]),
+                     readerControl = list(reader=readPlain))
+mac.corpus
+```
+
+```{r}
+mac.files$filelist
+```
+
+```{r}
+fun.corpus = function(t, f, n){
+  mac.path.loc = system.file("texts", "20Newsgroups", t, f, package = "tm")
+  mac.files = DirSource(mac.path.loc)
+  mac.corpus = VCorpus(URISource(mac.files$filelist[1:n]),
+                     readerControl = list(reader=readPlain))
+  return(mac.corpus)
+
+}
+```
+
+
+```{r}
+rautos_train = fun.corpus("20news-bydate-train", "rec.autos", 300)
+smed_train = fun.corpus("20news-bydate-train", "sci.med", 300)
+
+rautos_test = fun.corpus("20news-bydate-test", "rec.autos", 200)
+smed_test = fun.corpus("20news-bydate-test", "sci.med", 200)
+```
+
+```{r}
+inspect(rautos_train[[1]])
+```
+
+
+```{r}
+rautos_train
+```
+
+```{r}
+smed_train
+```
+
+
+```{r}
+gr = function(st, cont){
+  g = grep(st, cont)
+  return(cont[g])
+}
+```
+
+```{r}
+library(rlist)
+```
+
+
+```{r}
+ext = function(corp, n){
+  meta.info = list()
+  for (i in 1:n){
+    #each_c = c()
+    g1 = grep("From: ", corp[[i]]$content)
+    #each_c = append(each_c, corp[[i]]$content[g1])
+    g2 = grep("Organization: ", corp[[i]]$content)
+    #each_c = append(each_c, corp[[i]]$content[g2])
+    g3 = grep("Subject: ", corp[[i]]$content)
+    #each_c = append(each_c, corp[[i]]$content[g3])
+    each_c = c(corp[[i]]$content[g1], corp[[i]]$content[g2], corp[[i]]$content[g3])
+    meta.info[[i]] = each_c
+    #meta.info = push(meta.info, each_c)
+  }
+  return(meta.info)
+}
+```
+
+
+```{r}
+sm_train = ext(smed_train, 300)
+sm_test = ext(smed_test, 200)
+
+ra_train = ext(rautos_train, 300)
+ra_test = ext(rautos_test, 200)
+```
+
+
+```{r}
+merged = c(sm_train, ra_train, ra_test, sm_test)
+```
+
+```{r}
+merged[1]
+```
+
+```{r}
+merged.vec = VectorSource(merged)
+```
+
+
+```{r}
+v = VCorpus(merged.vec)
+inspect(v[[1]])
+```
+
+```{r}
+transform.words = content_transformer(function(x, from, to) gsub(from, to, x))
+temp.v = tm_map(v, transform.words, "@", " ")
+temp.v = tm_map(temp.v, transform.words, "From: |Organization: |Subject: ", "")
+#temp.v = tm_map(temp.v, content_transformer(tolower))
+#temp.v = tm_map(temp.v, PlainTextDocument)
+temp.v = tm_map(temp.v, removePunctuation)
+temp.v = tm_map(temp.v, stemDocument, language = "english")
+```
+
+```{r}
+inspect(temp.v[[1]])
+```
+
+```{r}
+dtm = DocumentTermMatrix(temp.v, control = list(wordLengths = c(2, Inf),
+                                                bound = list(global=c(5, Inf))))
+dtm
+```
+
+```{r}
+dtm.train = dtm[1:600,]
+dtm.test = dtm[601:1000,]
+```
+
+
+```{r}
+tags = factor(c(rep("smed", 300), rep("rauto", 300)))
+tags1 = factor(c(rep("rauto", 200), rep("smed", 200)))
+```
+
+
+```{r}
+library(class)
+```
+
+```{r}
+set.seed(245)
+prob.test = knn(dtm.train, dtm.test, tags, k=4, prob = TRUE)
+```
+
+```{r}
+prob.test
+```
+
+
+```{r}
+a = 601:1000
+b = levels(prob.test)[prob.test]
+c = prob.test==tags1
+```
+
+```{r}
+sum(c)/length(tags1)
+```
+
+```{r}
+res = data.frame(SI = a, Predict = b, Correct = c)
+head(res)
+```
+
+```{r}
+library(e1071)
+library(caret)
+```
+
+
+```{r}
+confusionMatrix(as.factor(b), as.factor(tags1), "smed")
+```
+
+```{r}
+length(tags1)
+```
+
+```{r}
+length(prob.test)
+```
+
+```{r}
+prob.t = function(n){
+  set.seed(245)
+  
+  prob.test = knn(dtm.train, dtm.test, tags, k=n, prob = TRUE)
+  a = 601:1000
+  b = levels(prob.test)[prob.test]
+  c = prob.test==tags1
+  return(c(a, b, c))
+}
+```
+
+
+```{r}
+res.list = c()
+for (i in 1:12){
+  acc = prob.t(i)
+  res.list = append(res.list, acc)
+}
+res.list
+```
+
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+res.data = data.frame(K_values = 1:12, Accuracy = res.list)
+```
+
+
+```{r}
+ggplot(res.data, aes(x = K_values, y = res.list)) + geom_point()+
+  labs(
+    title="Accuracy vs k values",
+    x = "K Values",
+    y = "Accuracy"
+  ) + 
+  scale_x_discrete(limits=1:12)
+```
+
+```{r}
+set.seed(245)
+prob.test = knn(dtm.train, dtm.test, tags, k=1, prob = TRUE)
+a = 601:1000
+b = levels(prob.test)[prob.test]
+c = prob.test==tags1
+res = data.frame(SI = a, Predict = b, Correct = c)
+head(res)
+```
+
+
+```{r}
+library(e1071)
+library(caret)
+confusionMatrix(as.factor(b), as.factor(tags1), "smed")
+```
+
+```{r}
+library(caret)
+```
+
+```{r}
+precision <- posPredValue(as.factor(b), as.factor(tags1), positive="smed")
+recall <- sensitivity(as.factor(b), as.factor(tags1), positive="smed")
+
+F1 <- (2 * precision * recall) / (precision + recall)
+c(precision, recall, F1)
+```
+
+```{r}
+F1 = (2*0.657*0.91) / (0.657 + 0.91)
+F1
+```
+
+```{r}
+d = data.frame(table(res$Predict, res$Correct))
+d
+```
+
+```{r}
+ggplot(d, aes(x = Var1, y = Freq, fill = Var2))+
+  geom_col(position = "dodge")+
+  guides(fill = guide_legend(title="Correct"))+
+  xlab(NULL)+
+  labs(x = "Predict",
+       y = "Correct",
+       title = "Prediction Accuracy for Each Class")
+```
+
+```{r}
+head(res)
+```
+
+
+
+
+
